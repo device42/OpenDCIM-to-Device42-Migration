@@ -30,8 +30,9 @@ import json
 
 
 # ====== MySQL Source (openDCIM) ====== #
-DB_IP       = ''
-DB_NAME  = ''
+DB_IP     = ''
+DB_PORT   = ''
+DB_NAME   = ''
 DB_USER   = ''
 DB_PWD    = ''
 # ====== Log settings  ==================== #
@@ -39,9 +40,9 @@ LOGFILE    = 'migration.log'
 DEBUG      = True
 # ====== Device42 upload settings ========= #
 D42_USER   = ''
-D42_PWD    = '2'
-D42_URL     = 'https://'
-DRY_RUN     = False
+D42_PWD    = ''
+D42_URL    = 'https://'
+DRY_RUN    = False
 
 class Logger():
     def __init__(self, logfile):
@@ -61,7 +62,7 @@ class REST():
     def __init__(self):
         self.password = D42_PWD
         self.username = D42_USER
-        self.base_url   = D42_URL
+        self.base_url = D42_URL
         
     def uploader(self, data, url):
         payload = data
@@ -212,7 +213,7 @@ class DB():
         self.manufacturers = {}
         
     def connect(self):
-        self.con = sql.connect(host=DB_IP,  port=3306,  db=DB_NAME, user=DB_USER, passwd=DB_PWD)
+        self.con = sql.connect(host=DB_IP,  port=DB_PORT,  db=DB_NAME, user=DB_USER, passwd=DB_PWD)
         
     def get_ips(self):
         net = {}
@@ -350,9 +351,6 @@ class DB():
         return vendor, model
 
 
-
-        
-                
     def get_devices(self):
         roomdata = json.loads(rest.get_rooms())
         racks_d42 = json.loads(rest.get_racks())
@@ -460,12 +458,9 @@ def main():
     db.get_rooms()
     db.get_racks()
     db.get_hardware()
-    
     db.get_devices()
     
     
-
-
 if __name__ == '__main__':
     logger = Logger(LOGFILE)
     rest = REST()
