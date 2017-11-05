@@ -11,6 +11,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
+import re
 import sys
 import pymysql as sql
 import codecs
@@ -43,6 +44,84 @@ D42_USER   = ''
 D42_PWD    = ''
 D42_URL    = 'https://'
 DRY_RUN    = False
+
+
+def is_valid_ip(ip):
+    """Validates IP addresses.
+    """
+    return is_valid_ipv4(ip) or is_valid_ipv6(ip)
+
+
+def is_valid_ipv4(ip):
+    """Validates IPv4 addresses.
+    """
+    pattern = re.compile(r"""
+        ^
+        (?:
+          # Dotted variants:
+          (?:
+            # Decimal 1-255 (no leading 0's)
+            [3-9]\d?|2(?:5[0-5]|[0-4]?\d)?|1\d{0,2}
+          |
+            0x0*[0-9a-f]{1,2}  # Hexadecimal 0x0 - 0xFF (possible leading 0's)
+          |
+            0+[1-3]?[0-7]{0,2} # Octal 0 - 0377 (possible leading 0's)
+          )
+          (?:                  # Repeat 0-3 times, separated by a dot
+            \.
+            (?:
+              [3-9]\d?|2(?:5[0-5]|[0-4]?\d)?|1\d{0,2}
+            |
+              0x0*[0-9a-f]{1,2}
+            |
+              0+[1-3]?[0-7]{0,2}
+            )
+          ){0,3}
+        |
+          0x0*[0-9a-f]{1,8}    # Hexadecimal notation, 0x0 - 0xffffffff
+        |
+          0+[0-3]?[0-7]{0,10}  # Octal notation, 0 - 037777777777
+        |
+          # Decimal notation, 1-4294967295:
+          429496729[0-5]|42949672[0-8]\d|4294967[01]\d\d|429496[0-6]\d{3}|
+          42949[0-5]\d{4}|4294[0-8]\d{5}|429[0-3]\d{6}|42[0-8]\d{7}|
+          4[01]\d{8}|[1-3]\d{0,9}|[4-9]\d{0,8}
+        )
+        $
+    """, re.VERBOSE | re.IGNORECASE)
+    return pattern.match(ip) is not None
+
+
+def is_valid_ipv6(ip):
+    """Validates IPv6 addresses.
+    """
+    pattern = re.compile(r"""
+        ^
+        \s*                         # Leading whitespace
+        (?!.*::.*::)                # Only a single whildcard allowed
+        (?:(?!:)|:(?=:))            # Colon iff it would be part of a wildcard
+        (?:                         # Repeat 6 times:
+            [0-9a-f]{0,4}           #   A group of at most four hexadecimal digits
+            (?:(?<=::)|(?<!::):)    #   Colon unless preceeded by wildcard
+        ){6}                        #
+        (?:                         # Either
+            [0-9a-f]{0,4}           #   Another group
+            (?:(?<=::)|(?<!::):)    #   Colon unless preceeded by wildcard
+            [0-9a-f]{0,4}           #   Last group
+            (?: (?<=::)             #   Colon iff preceeded by exacly one colon
+             |  (?<!:)              #
+             |  (?<=:) (?<!::) :    #
+             )                      # OR
+         |                          #   A v4 address with NO leading zeros
+            (?:25[0-4]|2[0-4]\d|1\d\d|[1-9]?\d)
+            (?: \.
+                (?:25[0-4]|2[0-4]\d|1\d\d|[1-9]?\d)
+            ){3}
+        )
+        \s*                         # Trailing whitespace
+        $
+    """, re.VERBOSE | re.IGNORECASE | re.DOTALL)
+    return pattern.match(ip) is not None
 
 class Logger():
     def __init__(self, logfile):
@@ -213,7 +292,7 @@ class DB():
         self.manufacturers = {}
         
     def connect(self):
-        self.con = sql.connect(host=DB_IP,  port=DB_PORT,  db=DB_NAME, user=DB_USER, passwd=DB_PWD)
+        self.con = sql.connect(host=DB_IP,  port=int(DB_PORT),  db=DB_NAME, user=DB_USER, passwd=DB_PWD)
         
     def get_ips(self):
         net = {}
@@ -228,8 +307,9 @@ class DB():
         for line in ips:
             if line[0] != '':
                 ip = line[0]
-                net.update({'ipaddress':ip})
-                rest.post_ip(net)
+                if is_valid_ip(ip):
+                    net.update({'ipaddress':ip})
+                    rest.post_ip(net)
                 
         with self.con:
             cur = self.con.cursor()
@@ -239,8 +319,9 @@ class DB():
         for line in ips:
             if line[0] != '':
                 ip = line[0]
-                net.update({'ipaddress':ip})
-                rest.post_ip(net)
+                if is_valid_ip(ip):
+                    net.update({'ipaddress':ip})
+                    rest.post_ip(net)
                 
 
     def get_locations(self):
@@ -288,6 +369,7 @@ class DB():
             
             
     def get_racks(self):
+        racks_d42 = json.loads(rest.get_racks())
         rack = {}
         if not self.con:
             self.connect()
@@ -299,7 +381,14 @@ class DB():
         for row in data:
             cid, did, room, height, name = row
             dc = self.datacenters_dcim[did]
-            if height != 0:
+
+            dup = False
+            for rack in racks_d42['racks']:
+                if str(name) == rack['name']:
+                    dup = True
+
+
+            if height != 0 or dup:
                 if name == '':
                     rnd =  str(random.randrange(101,9999))
                     name = 'Unknown'+rnd
@@ -353,7 +442,6 @@ class DB():
 
     def get_devices(self):
         roomdata = json.loads(rest.get_rooms())
-        racks_d42 = json.loads(rest.get_racks())
                 
         #print roomdata['rooms']
         device        = {}
@@ -363,11 +451,11 @@ class DB():
             self.connect()
         with self.con:
             cur = self.con.cursor()
-            q = 'SELECT Label, SerialNo, AssetTag, PrimaryIP,ESX, Cabinet,Position,Height,DeviceType,HalfDepth,BackSide, TemplateID FROM fac_Device'
+            q = 'SELECT Label, SerialNo, AssetTag, PrimaryIP, Cabinet,Position,Height,DeviceType,HalfDepth,BackSide, TemplateID FROM fac_Device'
             cur.execute(q)
         data = cur.fetchall()
         for row in data:
-            name, serial_no, comment, ip,esx, rackid, position, size, devicetype, halfdepth, backside, tid = row
+            name, serial_no, comment, ip, rackid, position, size, devicetype, halfdepth, backside, tid = row
             datacenter, room, rack_name = self.get_room_from_cabinet(rackid)
             vendor, model = self.get_vendor_and_model(tid)
             for rdata in roomdata['rooms']:
@@ -375,8 +463,9 @@ class DB():
                     if rdata['name'] == room:
                         storage_room_id = rdata['room_id']
                         storage_room     = room
+
             # post device
-            device.update({'name':rackid})
+            device.update({'name':name})
             device.update({'serial_no':serial_no})
             if devicetype.lower() == 'switch':
                 device.update({'is_it_switch':'yes'})
@@ -387,15 +476,17 @@ class DB():
             device.update({'hardware':model})
             rest.post_device(device)
             
-            #post device 2 rack
-            device2rack.update({'device':name})
-            #device2rack.update({'building':datacenter})
-            #device2rack.update({'room':room})
-            device2rack.update({'rack':rackid})
-            device2rack.update({'start_at':position-1})
-            if backside == '1':
-                device2rack.update({'orientation':'back'})
-            rest.post_device2rack(device2rack)
+            if rackid:
+                #post device 2 rack
+                device2rack.update({'device':name})
+                device2rack.update({'size':size})
+                #device2rack.update({'building':datacenter})
+                #device2rack.update({'room':room})
+                device2rack.update({'rack': str(rackid)})
+                device2rack.update({'start_at':position-1})
+                if backside == '1':
+                    device2rack.update({'orientation':'back'})
+                rest.post_device2rack(device2rack)
     
         
     def get_manufacturers(self):
@@ -446,8 +537,10 @@ class DB():
             hardware.update({'depth':depth})
             hardware.update({'watts':Wattage})
             hardware.update({'manufacturer':vendor})
-            hardware.update({'front_image':FrontPictureFile})
-            hardware.update({'back_image':RearPictureFile})
+            if FrontPictureFile:
+                hardware.update({'front_image':FrontPictureFile})
+            if RearPictureFile:
+                hardware.update({'back_image':RearPictureFile})
             rest.post_hardware(hardware)
 
 def main():
