@@ -355,16 +355,20 @@ class DB():
             self.connect()
         with self.con:
             cur = self.con.cursor()
-            q = 'SELECT DatacenterID,Location FROM fac_Cabinet'
+            q = 'SELECT DatacenterID,Location,CabinetHeight,Notes  FROM fac_Cabinet'
             cur.execute(q)
         data = cur.fetchall()
         for row in data:
             rid = row[0]
             room  = row[1]
+            height = row[2]
+            notes = row[3]
             dc = self.datacenters_dcim[rid]
             id = building_map[dc]
             rooms.update({'name':room})
             rooms.update({'building_id':id})
+            rooms.update({'height': height})
+            rooms.update({'notes': notes})
             rest.post_room(rooms)
             
             
