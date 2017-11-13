@@ -289,6 +289,8 @@ class DB():
         self.con = None
         self.tables = []
         self.datacenters_dcim = {}
+        self.rooms_dcim = {}
+        self.racks_dcim = {}
         self.manufacturers = {}
         
     def connect(self):
@@ -355,51 +357,53 @@ class DB():
             self.connect()
         with self.con:
             cur = self.con.cursor()
-            q = 'SELECT DatacenterID,Location,CabinetHeight,Notes  FROM fac_Cabinet'
+            q = 'SELECT ZoneID,DataCenterID,Description  FROM fac_Zone'
             cur.execute(q)
         data = cur.fetchall()
         for row in data:
-            rid = row[0]
-            room  = row[1]
-            height = row[2]
-            notes = row[3]
-            dc = self.datacenters_dcim[rid]
-            id = building_map[dc]
-            rooms.update({'name':room})
-            rooms.update({'building_id':id})
-            rooms.update({'height': height})
-            rooms.update({'notes': notes})
+            room_id = row[0]
+            dc  = row[1]
+            name = row[2]
+            dc = self.datacenters_dcim[dc]
+            dc_id = building_map[dc]
+            rooms.update({'name':name})
+            rooms.update({'building_id':dc_id})
+            self.rooms_dcim.update({room_id:name})
             rest.post_room(rooms)
             
             
     def get_racks(self):
-        racks_d42 = json.loads(rest.get_racks())
+        rooms = json.loads(rest.get_rooms())
         rack = {}
+         # get room IDs from D42
+        room_map = {}
+        rooms = json.loads(rest.get_rooms())
+        for room in rooms['rooms']:
+            room_map.update({room['name']:room['room_id']})
+
         if not self.con:
             self.connect()
         with self.con:
             cur = self.con.cursor()
-            q = 'SELECT CabinetID,DatacenterID,Location,CabinetHeight,Model FROM fac_Cabinet'
+            q = 'SELECT CabinetID,DatacenterID,Location,CabinetHeight,ZoneID FROM fac_Cabinet'
             cur.execute(q)
         data = cur.fetchall()
         for row in data:
-            cid, did, room, height, name = row
+            cid, did, name, height, room = row
             dc = self.datacenters_dcim[did]
 
-            dup = False
-            for rack in racks_d42['racks']:
-                if str(name) == rack['name']:
-                    dup = True
-
-
-            if height != 0 or dup:
+            if height != 0:
                 if name == '':
-                    rnd =  str(random.randrange(101,9999))
+                    rnd = str(random.randrange(101,9999))
                     name = 'Unknown'+rnd
-                rack.update({'name':cid})
+                if room > 0:
+                    room = self.rooms_dcim[room]
+                    room_id = room_map[room]
+                    rack.update({'room_id':room_id})
+                rack.update({'name':name})
                 rack.update({'size':height})                
-                rack.update({'room':room})
                 rack.update({'building':did})
+                self.racks_dcim.update({cid:name})
                 rest.post_rack(rack)
            
     
@@ -445,9 +449,7 @@ class DB():
 
 
     def get_devices(self):
-        roomdata = json.loads(rest.get_rooms())
-                
-        #print roomdata['rooms']
+
         device        = {}
         device2rack = {}
         hardware     = {}
@@ -462,19 +464,12 @@ class DB():
             name, serial_no, comment, ip, rackid, position, size, devicetype, halfdepth, backside, tid = row
             datacenter, room, rack_name = self.get_room_from_cabinet(rackid)
             vendor, model = self.get_vendor_and_model(tid)
-            for rdata in roomdata['rooms']:
-                if rdata['building'] == datacenter:
-                    if rdata['name'] == room:
-                        storage_room_id = rdata['room_id']
-                        storage_room     = room
 
             # post device
             device.update({'name':name})
             device.update({'serial_no':serial_no})
             if devicetype.lower() == 'switch':
                 device.update({'is_it_switch':'yes'})
-            device.update({'storage_room_id':storage_room_id})
-            device.update({'storage_room':storage_room})
             device.update({'notes':comment})
             device.update({'manufacturer':vendor})
             device.update({'hardware':model})
@@ -486,7 +481,7 @@ class DB():
                 device2rack.update({'size':size})
                 #device2rack.update({'building':datacenter})
                 #device2rack.update({'room':room})
-                device2rack.update({'rack': str(rackid)})
+                device2rack.update({'rack': self.racks_dcim[rackid]})
                 device2rack.update({'start_at':position-1})
                 if backside == '1':
                     device2rack.update({'orientation':'back'})
