@@ -143,6 +143,8 @@ class REST():
         self.username = D42_USER
         self.base_url = D42_URL
         
+        self.racks = json.loads(self.get_racks())
+
     def uploader(self, data, url):
         payload = data
         headers = {
@@ -234,21 +236,19 @@ class REST():
             url = self.base_url+'/api/1.0/racks/'
             msg =  '\r\nFetching racks from %s ' % url
             logger.writer(msg)
-            data = self.fetcher(url)
-            return data
-            
+        data = self.fetcher(url)
+        return data
+
+    def get_rack_by_name(self, name):
+        for rack in self.racks['racks']:
+            if rack['name'] == name:
+                return rack
+        return None
+
     def get_devices(self):
         if DRY_RUN == False:
             url = self.base_url+'/api/1.0/devices/'
             msg =  '\r\nFetching devices from %s ' % url
-            logger.writer(msg)
-            data = self.fetcher(url)
-            return data
-            
-    def get_racks(self):
-        if DRY_RUN == False:
-            url = self.base_url+'/api/1.0/racks/'
-            msg =  '\r\nFetching racks from %s ' % url
             logger.writer(msg)
             data = self.fetcher(url)
             return data
@@ -357,7 +357,7 @@ class DB():
             self.connect()
         with self.con:
             cur = self.con.cursor()
-            q = 'SELECT ZoneID,DataCenterID,Description  FROM fac_Zone'
+            q = 'SELECT ZoneID,DataCenterID,Description FROM fac_Zone'
             cur.execute(q)
         data = cur.fetchall()
         for row in data:
@@ -373,8 +373,6 @@ class DB():
             
             
     def get_racks(self):
-        rooms = json.loads(rest.get_rooms())
-        rack = {}
          # get room IDs from D42
         room_map = {}
         rooms = json.loads(rest.get_rooms())
@@ -385,10 +383,11 @@ class DB():
             self.connect()
         with self.con:
             cur = self.con.cursor()
-            q = 'SELECT CabinetID,DatacenterID,Location,CabinetHeight,ZoneID FROM fac_Cabinet'
+            q = 'SELECT CabinetID,DatacenterID,Location,CabinetHeight,ZoneID FROM fac_Cabinet'  
             cur.execute(q)
         data = cur.fetchall()
         for row in data:
+            rack = {}
             cid, did, name, height, room = row
             dc = self.datacenters_dcim[did]
 
@@ -400,8 +399,11 @@ class DB():
                     room = self.rooms_dcim[room]
                     room_id = room_map[room]
                     rack.update({'room_id':room_id})
+                d42_rack = rest.get_rack_by_name(name)
+                if d42_rack:
+                    rack.update({'rack_id':d42_rack['rack_id']})
                 rack.update({'name':name})
-                rack.update({'size':height})                
+                rack.update({'size':height})
                 rack.update({'building':did})
                 self.racks_dcim.update({cid:name})
                 rest.post_rack(rack)
@@ -443,7 +445,10 @@ class DB():
             q = 'SELECT ManufacturerID, Model FROM fac_DeviceTemplate WHERE TemplateID=%d' % id
             cur.execute(q)
         data = cur.fetchone()
-        id, model = data
+        try:
+            id, model = data
+        except TypeError:
+            return None, None
         vendor = self.manufacturers[id]
         return vendor, model
 
@@ -527,7 +532,12 @@ class DB():
         data = cur.fetchall()
         for row in data:
             TemplateID, ManufacturerID, Model, Height, Wattage, DeviceType, FrontPictureFile, RearPictureFile = row
-            depth = self.get_depth(TemplateID)
+            
+            try:
+                depth = self.get_depth(TemplateID)
+            except TypeError:
+                continue
+
             vendor = self.manufacturers[ManufacturerID]
         
             hardware.update({'name':Model})
