@@ -546,10 +546,13 @@ class DB():
             hardware.update({'depth':depth})
             hardware.update({'watts':Wattage})
             hardware.update({'manufacturer':vendor})
+            ''' 
+            # to do 
             if FrontPictureFile:
                 hardware.update({'front_image':FrontPictureFile})
             if RearPictureFile:
                 hardware.update({'back_image':RearPictureFile})
+            '''
             rest.post_hardware(hardware)
 
 def main():
