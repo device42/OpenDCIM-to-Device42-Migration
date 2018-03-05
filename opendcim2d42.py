@@ -223,7 +223,14 @@ class REST():
             msg =  '\r\nUpdating PDU data to %s ' % url
             logger.writer(msg)
             self.uploader(data, url)
-            
+
+    def post_pdu_model(self, data):
+        if DRY_RUN == False:
+            url = self.base_url+'/api/1.0/pdu_models/'
+            msg =  '\r\nPosting PDU models from %s ' % url
+            logger.writer(msg)
+            self.uploader(data, url)
+
     def get_pdu_models(self):
         if DRY_RUN == False:
             url = self.base_url+'/api/1.0/pdu_models/'
@@ -472,13 +479,17 @@ class DB():
 
             # post device
             device.update({'name':name})
-            device.update({'serial_no':serial_no})
-            if devicetype.lower() == 'switch':
-                device.update({'is_it_switch':'yes'})
-            device.update({'notes':comment})
             device.update({'manufacturer':vendor})
             device.update({'hardware':model})
-            rest.post_device(device)
+            device.update({'notes':comment})
+
+            if devicetype.lower() == 'cdu':
+                rest.post_pdu(device)
+            else:
+                device.update({'serial_no':serial_no})
+                if devicetype.lower() == 'switch':
+                    device.update({'is_it_switch':'yes'})
+                rest.post_device(device)
             
             if rackid:
                 #post device 2 rack
@@ -539,21 +550,25 @@ class DB():
                 continue
 
             vendor = self.manufacturers[ManufacturerID]
-        
+
+
             hardware.update({'name':Model})
-            hardware.update({'type':1})
             hardware.update({'size':Height})
             hardware.update({'depth':depth})
-            hardware.update({'watts':Wattage})
             hardware.update({'manufacturer':vendor})
-            ''' 
-            # to do 
-            if FrontPictureFile:
+            hardware.update({'watts':Wattage})
+            if DeviceType.lower() == 'cdu':
+                rest.post_pdu_model(hardware)
+            else:
+                hardware.update({'type':1})
+                ''' 
+                # to do 
+                if FrontPictureFile:
                 hardware.update({'front_image':FrontPictureFile})
-            if RearPictureFile:
+                if RearPictureFile:
                 hardware.update({'back_image':RearPictureFile})
-            '''
-            rest.post_hardware(hardware)
+                '''
+                rest.post_hardware(hardware)
 
 def main():
     db = DB()
