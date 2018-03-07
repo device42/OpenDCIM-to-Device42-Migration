@@ -427,7 +427,6 @@ class DB():
         return data
         
       
-                
     def get_room_from_cabinet(self, cabinetID):
         if not self.con:
             self.connect()
@@ -484,6 +483,7 @@ class DB():
             device.update({'notes':comment})
 
             if devicetype.lower() == 'cdu':
+                device.update({'pdu_model':model})
                 rest.post_pdu(device)
             else:
                 device.update({'serial_no':serial_no})
